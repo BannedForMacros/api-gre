@@ -87,19 +87,24 @@ public class CatalogoController {
     @PostMapping("/GREDMK/ObtenerTransportista")
     public Map<String, Object> obtenerTransportista(@RequestBody Map<String, Object> req) {
         return envoltorio("transportistas",
-                repo.guiaRemisionLike(str(req.get("valor")), entero(req.get("tipo"), 3)));
+                repo.transportistas(str(req.get("valor")), entero(req.get("tipo"), 3)));
     }
 
     @PostMapping("/GREDMK/ObtenerVehiculo")
     public Map<String, Object> obtenerVehiculo(@RequestBody Map<String, Object> req) {
         return envoltorio("vehiculos",
-                repo.guiaRemisionLike(str(req.get("valor")), entero(req.get("tipo"), 4)));
+                repo.vehiculos(str(req.get("valor")), entero(req.get("tipo"), 4)));
     }
 
+    /**
+     * Pedia el tipo 5 del procedimiento, que consulta la tabla VEHICULO. Los
+     * choferes son el tipo 6. Laravel pinta el desplegable leyendo dniChofer,
+     * breveteChofer y nombreChofer, campos que una fila de vehiculo no tiene:
+     * con datos en la tabla, la pantalla se rompia al renderizar.
+     */
     @PostMapping("/GREDMK/ObtenerChoferes")
     public Map<String, Object> obtenerChoferes(@RequestBody Map<String, Object> req) {
-        return envoltorio("choferes",
-                repo.guiaRemisionLike(str(req.get("nombrechofer")), 5));
+        return envoltorio("choferes", repo.choferes(str(req.get("nombrechofer"))));
     }
 
     @PostMapping("/GREDMK/obtenerCliente")

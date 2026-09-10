@@ -192,13 +192,64 @@ public class CatalogoRepository {
      * transportistas, vehiculos y choferes segun el tipo. Se devuelve crudo
      * porque las columnas cambian entre ellos y el mapeo se hace arriba.
      */
-    public List<Map<String, Object>> guiaRemisionLike(String valor, int tipo) {
+    private List<Map<String, Object>> guiaRemisionLike(String valor, int tipo) {
         return consultar("{ call GetGuiaRemisionLikeForTipo(?,?) }", valor, tipo);
     }
 
-    /** SP: GetDatosClientexTipo */
+    /**
+     * GetGuiaRemisionLikeForTipo devuelve "select *" de tres tablas distintas
+     * segun el tipo, asi que la proyeccion no puede ser una sola: se hace en el
+     * metodo de cada catalogo. Sin proyectar salian en PascalCase y Laravel las
+     * lee en camelCase, el mismo fallo que tenia el catalogo de proveedores y
+     * que reventaba con 500 en cuanto la busqueda encontraba algo. Aqui no se
+     * habia notado porque la tabla Transportista esta vacia.
+     */
+    public List<Map<String, Object>> transportistas(String valor, int tipo) {
+        return Mapeo.proyectar(guiaRemisionLike(valor, tipo),
+                "CodTransportista",       "codTransportista",
+                "NombreTransportista",    "nombreTransportista",
+                "DireccionTransportista", "direccionTransportista",
+                "RucTransportista",       "rucTransportista",
+                "TelefonoTransportista",  "telefonoTransportista",
+                "Estado",                 "estado");
+    }
+
+    public List<Map<String, Object>> vehiculos(String valor, int tipo) {
+        return Mapeo.proyectar(guiaRemisionLike(valor, tipo),
+                "PlacaVehiculo",       "placaVehiculo",
+                "MarcaVehiculo",       "marcaVehiculo",
+                "CodTransportista",    "codTransportista",
+                "NombreTransportista", "nombreTransportista",
+                "Estado",              "estado");
+    }
+
+    public List<Map<String, Object>> choferes(String valor) {
+        return Mapeo.proyectar(guiaRemisionLike(valor, 6),
+                "NombreChofer",  "nombreChofer",
+                "DniChofer",     "dniChofer",
+                "BreveteChofer", "breveteChofer",
+                "Telefono",      "telefono",
+                "Estado",        "estado");
+    }
+
+    /**
+     * SP: GetDatosClientexTipo
+     *
+     * La firma es (@Tipoconsulta int, @Valor varchar), en ese orden, y se
+     * pasaba al reves: el texto buscado entraba como @Tipoconsulta y SQL Server
+     * respondia "Error converting data type nvarchar to int". consultar() lo
+     * tragaba como catalogo vacio, asi que el buscador de clientes decia
+     * "sin resultados" para CUALQUIER busqueda, sin un solo error visible.
+     * Mismo fallo que tenia la cascada de ubigeos.
+     */
     public List<Map<String, Object>> clientes(String valor, int tipo) {
-        return consultar("{ call GetDatosClientexTipo(?,?) }", valor, tipo);
+        return Mapeo.proyectar(consultar("{ call GetDatosClientexTipo(?,?) }", tipo, valor),
+                "CodCliente",             "codCliente",
+                "RazonSocial",            "razonSocial",
+                "Direccion",              "direccion",
+                "RucCliente",             "rucCliente",
+                "Dni",                    "dni",
+                "TipoDocumentoIdentidad", "tipoDocumentoIdentidad");
     }
 
     /**
