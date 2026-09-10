@@ -6,6 +6,7 @@ import org.springframework.stereotype.Repository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -39,7 +40,7 @@ public class CatalogoRepository {
         try {
             return jdbc.queryForList(sql, args);
         } catch (Exception e) {
-            log.warn("Catalogo sin resultados: {} · {}", sql, e.getMessage());
+            log.warn("Catalogo sin resultados: {} · args={} · {}", sql, java.util.Arrays.toString(args), e.getMessage());
             return Collections.emptyList();
         }
     }
@@ -129,12 +130,61 @@ public class CatalogoRepository {
                 "Cargo",         "cargo");
     }
 
-    /** SP: pr_ObtieneUbigeo · 1 departamento · 2 provincia · 3 distrito */
+    /**
+     * SP: pr_ObtieneUbigeo · 1 departamento · 2 provincia · 3 distrito
+     *
+     * La firma del SP es (@tipo int, @ubigeo varchar(10)), en ese orden. Se
+     * pasaban al reves, asi que el codigo del padre entraba como @tipo: '1501'
+     * se convertia al int 1501, ninguna de las tres ramas del SP coincidia, el
+     * procedimiento terminaba sin devolver un conjunto de resultados y
+     * consultar() lo tragaba como catalogo vacio. La cascada de ubigeos salia
+     * vacia en los tres niveles sin ningun error visible.
+     *
+     * El SP nombra sus columnas ubigeo/Tipo/descripcion, no CodUbigeo: pedir
+     * "CodUbigeo" dejaba codUbigeo en null aunque hubiera filas.
+     */
     public List<Map<String, Object>> ubigeos(String codigoPadre, int tipoConsulta) {
-        return Mapeo.proyectar(
-                consultar("{ call pr_ObtieneUbigeo(?,?) }", codigoPadre, tipoConsulta),
-                "CodUbigeo",   "codUbigeo",
-                "Descripcion", "descripcion");
+        List<Map<String, Object>> filas = Mapeo.proyectar(
+                consultar("{ call pr_ObtieneUbigeo(?,?) }", tipoConsulta, codigoPadre),
+                "ubigeo",      "codUbigeo",
+                "descripcion", "descripcion");
+
+        return sinFilasResumen(filas);
+    }
+
+    /**
+     * Quita del catalogo de ubigeos las filas que no son una opcion elegible.
+     *
+     * maestrodistrito guarda, junto a los distritos, una fila de resumen por
+     * provincia: el codigo termina en "00" (130100 para Trujillo) y viene sin
+     * descripcion. El SP la devuelve con el resto, y en el desplegable de
+     * distritos aparecia como una opcion EN BLANCO al principio de la lista.
+     *
+     * Se filtra aqui, en la ApiGRE, y no en el procedimiento ni en la tabla,
+     * a proposito: los procedimientos y los datos ya estan instalados en los
+     * clientes y funcionan. Arreglarlo en este punto lo corrige para todos sin
+     * que nadie tenga que tocar su base de datos.
+     */
+    private static List<Map<String, Object>> sinFilasResumen(List<Map<String, Object>> filas) {
+        List<Map<String, Object>> limpias = new ArrayList<>(filas.size());
+
+        for (Map<String, Object> fila : filas) {
+            Object cod  = fila.get("codUbigeo");
+            Object desc = fila.get("descripcion");
+
+            String codigo      = cod  == null ? "" : String.valueOf(cod).trim();
+            String descripcion = desc == null ? "" : String.valueOf(desc).trim();
+
+            // Sin nombre no se puede elegir, y un distrito real nunca termina
+            // en "00": ese sufijo es siempre la cabecera de la provincia.
+            if (descripcion.isEmpty() || (codigo.length() == 6 && codigo.endsWith("00"))) {
+                continue;
+            }
+
+            limpias.add(fila);
+        }
+
+        return limpias;
     }
 
     /**
