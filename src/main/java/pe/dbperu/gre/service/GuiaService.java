@@ -7,6 +7,9 @@ import pe.dbperu.gre.domain.*;
 import pe.dbperu.gre.repository.GuiaRepository;
 import pe.dbperu.gre.repository.GuiaXmlBuilder;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -21,6 +24,8 @@ import java.util.stream.Collectors;
  */
 @Service
 public class GuiaService {
+
+    private static final Logger log = LoggerFactory.getLogger(GuiaService.class);
 
     private final GuiaRepository repo;
     private final GuiaXmlBuilder xml;
@@ -76,8 +81,34 @@ public class GuiaService {
         resp.setTipoGuia(g.getTipoGuia());
         resp.setNumSerie(g.getNumSerie());
         resp.setNumeroGuia(g.getNumeroGuia());
-        resp.setExito(r.isExito());
-        resp.setMensaje(r.getMensaje());
+        // El codigo de retorno del procedimiento solo dice que la guia entro a
+        // la cola; el ERP puede rechazarla despues y el resultado seguiria
+        // diciendo que si. Se comprueba que exista en destino antes de dar el
+        // envio por bueno. (Mismo criterio que /GREDMK/InsertGuiaDMK.)
+        boolean exito  = r.isExito();
+        String  mensaje = r.getMensaje();
+
+        if (exito) {
+            try {
+                if (! repo.existeEnDataMart(g.getAnio(), g.getTipoGuia(), g.getNumSerie(), g.getNumeroGuia())) {
+                    String motivo = repo.motivoRechazo(g.getAnio(), g.getNumSerie(), g.getNumeroGuia());
+                    exito   = false;
+                    mensaje = motivo != null && ! motivo.isEmpty()
+                            ? "El DataMart rechazo la guia: " + motivo
+                            : "La guia quedo en la cola y no llego al DataMart. Revise el proceso del ERP.";
+                    log.warn("Guia {}-{} no llego a GuiaRemision. Motivo: {}",
+                             g.getNumSerie(), g.getNumeroGuia(), motivo == null ? "(sin registrar)" : motivo);
+                }
+            } catch (Exception e) {
+                // No poder comprobar no es lo mismo que fallar: se respeta el
+                // resultado del procedimiento y queda el rastro en el log.
+                log.warn("No se pudo verificar la guia {}-{}: {}",
+                         g.getNumSerie(), g.getNumeroGuia(), e.getMessage());
+            }
+        }
+
+        resp.setExito(exito);
+        resp.setMensaje(mensaje);
         resp.setValorVenta(valorVenta);
         resp.setIgv(igv);
         resp.setTotalVenta(total);

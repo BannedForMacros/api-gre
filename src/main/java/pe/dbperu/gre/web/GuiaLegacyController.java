@@ -1,5 +1,7 @@
 package pe.dbperu.gre.web;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -29,6 +31,8 @@ import java.util.Map;
 @RestController
 public class GuiaLegacyController {
 
+    private static final Logger log = LoggerFactory.getLogger(GuiaLegacyController.class);
+
     private final GuiaRepository repo;
 
     public GuiaLegacyController(GuiaRepository repo) {
@@ -41,9 +45,64 @@ public class GuiaLegacyController {
         ResultadoInsercion r = repo.insertarGuia(xml);
 
         Map<String, Object> resp = new LinkedHashMap<>();
-        resp.put("exito", r.isExito());
-        resp.put("msgerror", r.getMensaje());
+
+        if (! r.isExito()) {
+            resp.put("exito", false);
+            resp.put("msgerror", r.getMensaje());
+            return resp;
+        }
+
+        // El procedimiento dijo que si, pero eso solo significa que la guia
+        // entro a la cola. Se comprueba que haya llegado al destino: el ERP
+        // puede rechazarla despues y el codigo de retorno no se entera.
+        int    anio   = entero(body.get("anioGuiaRemision"));
+        String tipo   = body.get("tipoGuia") == null ? "" : String.valueOf(body.get("tipoGuia"));
+        int    serie  = entero(body.get("numSerie"));
+        long   numero = largo(body.get("numeroGuia"));
+
+        boolean aterrizo;
+        try {
+            aterrizo = repo.existeEnDataMart(anio, tipo, serie, numero);
+        } catch (Exception e) {
+            // Si no se puede comprobar, no se inventa un fracaso: se informa
+            // el resultado del procedimiento y se deja rastro.
+            log.warn("No se pudo verificar la guia {}-{} en el DataMart: {}", serie, numero, e.getMessage());
+            resp.put("exito", true);
+            resp.put("msgerror", r.getMensaje());
+            resp.put("verificado", false);
+            return resp;
+        }
+
+        if (aterrizo) {
+            resp.put("exito", true);
+            resp.put("msgerror", r.getMensaje());
+            resp.put("verificado", true);
+            return resp;
+        }
+
+        String motivo = repo.motivoRechazo(anio, serie, numero);
+        log.warn("Guia {}-{} quedo en la cola sin llegar a GuiaRemision. Motivo: {}",
+                 serie, numero, motivo == null ? "(sin registrar)" : motivo);
+
+        resp.put("exito", false);
+        resp.put("msgerror", motivo != null && ! motivo.isEmpty()
+                ? "El DataMart rechazo la guia: " + motivo
+                : "La guia quedo en la cola y no llego al DataMart. Revise el proceso del ERP.");
+        resp.put("verificado", true);
+        resp.put("enCola", true);
         return resp;
+    }
+
+    private static int entero(Object v) {
+        if (v == null) { return 0; }
+        try { return Integer.parseInt(String.valueOf(v).trim()); }
+        catch (NumberFormatException e) { return 0; }
+    }
+
+    private static long largo(Object v) {
+        if (v == null) { return 0L; }
+        try { return Long.parseLong(String.valueOf(v).trim()); }
+        catch (NumberFormatException e) { return 0L; }
     }
 
     @SuppressWarnings("unchecked")

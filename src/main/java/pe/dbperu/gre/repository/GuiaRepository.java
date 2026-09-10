@@ -1,6 +1,8 @@
 package pe.dbperu.gre.repository;
 
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Repository;
 import pe.dbperu.gre.domain.ResultadoInsercion;
 
@@ -10,6 +12,7 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Acceso a los stored procedures del DataMart.
@@ -19,6 +22,8 @@ import java.util.List;
  */
 @Repository
 public class GuiaRepository {
+
+    private static final Logger log = LoggerFactory.getLogger(GuiaRepository.class);
 
     private final JdbcTemplate jdbc;
 
@@ -74,6 +79,49 @@ public class GuiaRepository {
         List<Integer> faltantes = new ArrayList<>(codigos);
         faltantes.removeAll(existentes);
         return faltantes;
+    }
+
+    /**
+     * ¿La guia aterrizo de verdad en el DataMart?
+     *
+     * prc_InsertGuiaDMKWeb devuelve "Registro Exitoso en DMK" apenas mete la
+     * guia en la COLA (GuiaRemision_Odoo), sin importar si InsertarGuiasOdooDmk
+     * llego a moverla a las tablas reales. Ese procedimiento puede rechazarla
+     * mas adelante -por documento incompleto, por articulo sin replicar, por
+     * una tabla temporal pisada- y aun asi el codigo de retorno dice 1.
+     *
+     * Medido sobre datos reales: 45 guias marcadas estadoproceso=1 y solo 38
+     * en GuiaRemision. Ocho se dieron por registradas sin existir.
+     *
+     * Por eso no se le cree al codigo de retorno: se comprueba.
+     */
+    public boolean existeEnDataMart(int anio, String tipoGuia, int numSerie, long numeroGuia) {
+        Integer n = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM GuiaRemision "
+              + "WHERE AnioGuiaRemision = ? AND TipoGuia = ? AND NumSerie = ? AND NumeroGuia = ?",
+                Integer.class, anio, tipoGuia, numSerie, numeroGuia);
+        return n != null && n > 0;
+    }
+
+    /**
+     * El motivo del rechazo, tal como lo dejo el procedimiento del ERP.
+     * Sin esto el usuario solo ve "no se registro", sin saber por que.
+     */
+    public String motivoRechazo(int anio, int numSerie, long numeroGuia) {
+        try {
+            List<Map<String, Object>> filas = jdbc.queryForList(
+                    "SELECT TOP 1 msg_error FROM audit_InsertarGuiasOdooDmk "
+                  + "WHERE anioguia = ? AND numserie = ? AND numeroguia = ? AND msg_error IS NOT NULL "
+                  + "ORDER BY fecharegistro DESC",
+                    anio, numSerie, numeroGuia);
+            if (! filas.isEmpty()) {
+                Object v = filas.get(0).get("msg_error");
+                if (v != null) { return String.valueOf(v).trim(); }
+            }
+        } catch (Exception e) {
+            log.warn("No se pudo leer audit_InsertarGuiasOdooDmk: {}", e.getMessage());
+        }
+        return null;
     }
 
     /** Ping para GET /health. */
