@@ -201,10 +201,27 @@ public class CatalogoRepository {
         return consultar("{ call GetDatosClientexTipo(?,?) }", valor, tipo);
     }
 
-    /** SPs: GetMaestroproveedoresByRuc · pr_consultaProveedorlikeRazonsocial */
+    /**
+     * SPs: GetMaestroproveedoresByRuc · pr_consultaProveedorlikeRazonsocial
+     *
+     * Era el UNICO catalogo que salia sin proyectar: devolvia las columnas tal
+     * como las nombra el procedimiento (CodProveedor, NombreProveedor, Ruc) y
+     * Laravel las lee en camelCase, asi que en cuanto la busqueda encontraba
+     * algo el buscador de proveedor respondia 500 con "Undefined property:
+     * stdClass::$codProveedor". Pasaba desapercibido porque la busqueda por
+     * razon social usa un procedimiento que no esta en todas las
+     * instalaciones: sin el, la lista sale vacia y nunca se llega a fallar.
+     */
     public List<Map<String, Object>> proveedores(String valor, int tipo) {
         String sp = (tipo == 3) ? "pr_consultaProveedorlikeRazonsocial" : "GetMaestroproveedoresByRuc";
-        return consultar("{ call " + sp + "(?) }", valor);
+
+        return Mapeo.proyectar(consultar("{ call " + sp + "(?) }", valor),
+                "CodProveedor",     "codProveedor",
+                "NombreProveedor",  "nombreproveedor",
+                "Ruc",              "ruc",
+                "Direccion",        "direccion",
+                "Telefono",         "telefono",
+                "CodEstacion",      "codEstacion");
     }
 
     /**
