@@ -97,7 +97,7 @@ public class GuiaXmlBuilder {
     }
 
     /** Escapa los cinco caracteres que romperian el XML. */
-    static String escapar(String s) {
+    public static String escapar(String s) {
         StringBuilder out = new StringBuilder(s.length() + 16);
         for (int i = 0; i < s.length(); i++) {
             char c = s.charAt(i);
