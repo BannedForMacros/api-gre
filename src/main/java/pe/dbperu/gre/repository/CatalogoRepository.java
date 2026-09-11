@@ -1,11 +1,14 @@
 package pe.dbperu.gre.repository;
 
+import org.springframework.jdbc.core.ColumnMapRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.PreparedStatementCreator;
 import org.springframework.stereotype.Repository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.sql.CallableStatement;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -41,6 +44,33 @@ public class CatalogoRepository {
             return jdbc.queryForList(sql, args);
         } catch (Exception e) {
             log.warn("Catalogo sin resultados: {} · args={} · {}", sql, java.util.Arrays.toString(args), e.getMessage());
+            return Collections.emptyList();
+        }
+    }
+
+    /**
+     * Como consultar(), pero deja de leer tras {@code limite} filas (0 = todas).
+     *
+     * Los buscadores de la pantalla solo muestran la primera pagina. Sin esto,
+     * abrir el buscador sin texto traia 6.681 articulos o 12.199 clientes que
+     * viajaban enteros hasta el navegador para mostrar 20. setMaxRows corta en
+     * el driver: el procedimiento del ERP no se toca.
+     */
+    private List<Map<String, Object>> consultarHasta(int limite, String sql, Object... args) {
+        if (limite <= 0) {
+            return consultar(sql, args);
+        }
+        try {
+            return jdbc.query((PreparedStatementCreator) con -> {
+                CallableStatement cs = con.prepareCall(sql);
+                cs.setMaxRows(limite);
+                for (int i = 0; i < args.length; i++) {
+                    cs.setObject(i + 1, args[i]);
+                }
+                return cs;
+            }, new ColumnMapRowMapper());
+        } catch (Exception e) {
+            log.warn("Catalogo sin resultados: {} · args={} · limite={} · {}", sql, java.util.Arrays.toString(args), limite, e.getMessage());
             return Collections.emptyList();
         }
     }
@@ -84,7 +114,12 @@ public class CatalogoRepository {
      */
     public List<Map<String, Object>> articulos(String valor, int tipoConsulta,
                                                int codEstacion, int codAlmacen, int codListaPrecio) {
-        List<Map<String, Object>> filas = consultar(
+        return articulos(valor, tipoConsulta, codEstacion, codAlmacen, codListaPrecio, 0);
+    }
+
+    public List<Map<String, Object>> articulos(String valor, int tipoConsulta,
+                                               int codEstacion, int codAlmacen, int codListaPrecio, int limite) {
+        List<Map<String, Object>> filas = consultarHasta(limite,
                 "{ call " + spArticulos() + "(?,?,?,?,?,?,?) }",
                 0, valor, codEstacion, codAlmacen, "1", String.valueOf(tipoConsulta), codListaPrecio);
 
@@ -193,7 +228,11 @@ public class CatalogoRepository {
      * porque las columnas cambian entre ellos y el mapeo se hace arriba.
      */
     private List<Map<String, Object>> guiaRemisionLike(String valor, int tipo) {
-        return consultar("{ call GetGuiaRemisionLikeForTipo(?,?) }", valor, tipo);
+        return guiaRemisionLike(valor, tipo, 0);
+    }
+
+    private List<Map<String, Object>> guiaRemisionLike(String valor, int tipo, int limite) {
+        return consultarHasta(limite, "{ call GetGuiaRemisionLikeForTipo(?,?) }", valor, tipo);
     }
 
     /**
@@ -205,7 +244,11 @@ public class CatalogoRepository {
      * habia notado porque la tabla Transportista esta vacia.
      */
     public List<Map<String, Object>> transportistas(String valor, int tipo) {
-        return Mapeo.proyectar(guiaRemisionLike(valor, tipo),
+        return transportistas(valor, tipo, 0);
+    }
+
+    public List<Map<String, Object>> transportistas(String valor, int tipo, int limite) {
+        return Mapeo.proyectar(guiaRemisionLike(valor, tipo, limite),
                 "CodTransportista",       "codTransportista",
                 "NombreTransportista",    "nombreTransportista",
                 "DireccionTransportista", "direccionTransportista",
@@ -243,7 +286,11 @@ public class CatalogoRepository {
      * Mismo fallo que tenia la cascada de ubigeos.
      */
     public List<Map<String, Object>> clientes(String valor, int tipo) {
-        return Mapeo.proyectar(consultar("{ call GetDatosClientexTipo(?,?) }", tipo, valor),
+        return clientes(valor, tipo, 0);
+    }
+
+    public List<Map<String, Object>> clientes(String valor, int tipo, int limite) {
+        return Mapeo.proyectar(consultarHasta(limite, "{ call GetDatosClientexTipo(?,?) }", tipo, valor),
                 "CodCliente",             "codCliente",
                 "RazonSocial",            "razonSocial",
                 "Direccion",              "direccion",
@@ -264,9 +311,13 @@ public class CatalogoRepository {
      * instalaciones: sin el, la lista sale vacia y nunca se llega a fallar.
      */
     public List<Map<String, Object>> proveedores(String valor, int tipo) {
+        return proveedores(valor, tipo, 0);
+    }
+
+    public List<Map<String, Object>> proveedores(String valor, int tipo, int limite) {
         String sp = (tipo == 3) ? "pr_consultaProveedorlikeRazonsocial" : "GetMaestroproveedoresByRuc";
 
-        return Mapeo.proyectar(consultar("{ call " + sp + "(?) }", valor),
+        return Mapeo.proyectar(consultarHasta(limite, "{ call " + sp + "(?) }", valor),
                 "CodProveedor",     "codProveedor",
                 "NombreProveedor",  "nombreproveedor",
                 "Ruc",              "ruc",

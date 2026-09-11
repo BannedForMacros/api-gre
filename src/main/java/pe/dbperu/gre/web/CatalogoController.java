@@ -57,7 +57,8 @@ public class CatalogoController {
                 entero(req.get("tipoconsulta"), 1),
                 entero(req.get("codestacion"), 1),
                 entero(req.get("codalmacen"), 1),
-                entero(req.get("codlistaprecio"), 1));
+                entero(req.get("codlistaprecio"), 1),
+                limite(req));
     }
 
     // ---------------- alias compatibles con ApiDMK ----------------
@@ -87,7 +88,7 @@ public class CatalogoController {
     @PostMapping("/GREDMK/ObtenerTransportista")
     public Map<String, Object> obtenerTransportista(@RequestBody Map<String, Object> req) {
         return envoltorio("transportistas",
-                repo.transportistas(str(req.get("valor")), entero(req.get("tipo"), 3)));
+                repo.transportistas(str(req.get("valor")), entero(req.get("tipo"), 3), limite(req)));
     }
 
     @PostMapping("/GREDMK/ObtenerVehiculo")
@@ -110,13 +111,21 @@ public class CatalogoController {
     @PostMapping("/GREDMK/obtenerCliente")
     public Map<String, Object> obtenerCliente(@RequestBody Map<String, Object> req) {
         return envoltorio("cliente",
-                repo.clientes(str(req.get("valor")), entero(req.get("tipo"), 1)));
+                repo.clientes(str(req.get("valor")), entero(req.get("tipo"), 1), limite(req)));
     }
 
     @PostMapping("/GREDMK/ObtenerProveedores")
     public Map<String, Object> obtenerProveedores(@RequestBody Map<String, Object> req) {
         return envoltorio("proveedores",
-                repo.proveedores(str(req.get("valor")), entero(req.get("tipo"), 1)));
+                repo.proveedores(str(req.get("valor")), entero(req.get("tipo"), 1), limite(req)));
+    }
+
+    /**
+     * Cuantas filas quiere el buscador. 0 = todas, que es lo que recibe quien
+     * no lo manda: un Laravel anterior sigue funcionando igual.
+     */
+    private static int limite(Map<String, Object> req) {
+        return Math.max(0, entero(req.get("limite"), 0));
     }
 
     private static String str(Object v) { return v == null ? "" : String.valueOf(v); }
