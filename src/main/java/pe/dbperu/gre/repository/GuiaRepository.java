@@ -125,6 +125,26 @@ public class GuiaRepository {
     }
 
     /** Ping para GET /health. */
+    /**
+     * Cuales de estos procedimientos NO existen en la base.
+     *
+     * Un DataMart incompleto no avisa: sin pr_consultaProveedorlikeRazonsocial
+     * la busqueda de proveedor por nombre devuelve siempre una lista vacia, sin
+     * un solo error en pantalla. Paso en el DataMart de pruebas.
+     */
+    public java.util.List<String> procedimientosFaltantes(java.util.Collection<String> nombres) {
+        if (nombres.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        String marcas = String.join(",", java.util.Collections.nCopies(nombres.size(), "?"));
+        java.util.Set<String> existen = jdbc
+                .queryForList("SELECT name FROM sys.procedures WHERE name IN (" + marcas + ")", String.class, nombres.toArray())
+                .stream().map(String::toLowerCase).collect(java.util.stream.Collectors.toSet());
+        return nombres.stream()
+                .filter(n -> !existen.contains(n.toLowerCase()))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
     public boolean disponible() {
         try {
             jdbc.queryForObject("SELECT 1", Integer.class);
